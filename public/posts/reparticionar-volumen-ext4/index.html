@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="es-mx">
+  <head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <title>Reparticionar volumen ext4 con ZFS // mingetch&#39;s</title>
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <meta charset="utf-8" />
+    <meta name="generator" content="Hugo 0.147.1">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="author" content="mingetch" />
+    <meta name="description" content="" />
+    <link rel="stylesheet" href="/css/main.min.5b1fcc8902588589c4767187402a3c29f8b8d7a6fdef6d9f8f77045bb0d14fee.css" />
+    
+
+    
+    
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Reparticionar volumen ext4 con ZFS">
+  <meta name="twitter:description" content="Objetivo Crear una partición ZFS en un disco con particiones existentes.
+Condiciones previas Se presupone que la partición que deseamos particionar está formateada con el sistema ext4.
+El sistema de archivos de ejemplo tiene la siguiente estructura:
+# lsblk /dev/sda NAME MAJ:MIN RM SIZE RO TYPE MOUNTPOINT sda 8:0 0 600G 0 disk ├─sda1 8:1 0 1M 0 part ├─sda2 8:2 0 2G 0 part └─sda3 8:3 0 598G 0 part La partición a modificar tiene el siguiente formato">
+
+    <meta property="og:url" content="http://localhost:1313/posts/reparticionar-volumen-ext4/">
+  <meta property="og:site_name" content="mingetch&#39;s">
+  <meta property="og:title" content="Reparticionar volumen ext4 con ZFS">
+  <meta property="og:description" content="Objetivo Crear una partición ZFS en un disco con particiones existentes.
+Condiciones previas Se presupone que la partición que deseamos particionar está formateada con el sistema ext4.
+El sistema de archivos de ejemplo tiene la siguiente estructura:
+# lsblk /dev/sda NAME MAJ:MIN RM SIZE RO TYPE MOUNTPOINT sda 8:0 0 600G 0 disk ├─sda1 8:1 0 1M 0 part ├─sda2 8:2 0 2G 0 part └─sda3 8:3 0 598G 0 part La partición a modificar tiene el siguiente formato">
+  <meta property="og:locale" content="es_mx">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2024-11-05T23:05:22-06:00">
+    <meta property="article:modified_time" content="2024-11-05T23:05:22-06:00">
+
+
+  </head>
+  <body>
+    <header class="app-header">
+      <a href="/"><img class="app-header-avatar" src="/avatar.jpg" alt="mingetch" /></a>
+      <span class="app-header-title">mingetch&#39;s</span>
+      <p>mingetch is an IT professional in the private sector</p>
+      <div class="app-header-social">
+        
+          <a href="https://github.com/mingetch" target="_blank" rel="noreferrer noopener me">
+            <svg class="icon icon-github" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>github</title><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+          </a>
+        
+      </div>
+    </header>
+    <main class="app-container">
+      
+  <article class="post">
+    <header class="post-header">
+      <h1 class ="post-title">Reparticionar volumen ext4 con ZFS</h1>
+      <div class="post-meta">
+        <div>
+          <svg class="icon icon-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>calendar</title><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          Nov 5, 2024
+        </div>
+        <div>
+          <svg class="icon icon-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>clock</title><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          8 min read
+        </div>
+      </div>
+    </header>
+    <div class="post-content">
+      <h1 id="objetivo">Objetivo</h1>
+<p>Crear una partición <em>ZFS</em> en un disco con particiones existentes.</p>
+<h1 id="condiciones-previas">Condiciones previas</h1>
+<p>Se presupone que la partición que deseamos particionar está formateada con el
+sistema <em>ext4</em>.</p>
+<p>El sistema de archivos de ejemplo tiene la siguiente estructura:</p>
+<pre tabindex="0"><code># lsblk /dev/sda
+NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+sda      8:0    0   600G  0 disk
+├─sda1   8:1    0     1M  0 part
+├─sda2   8:2    0     2G  0 part
+└─sda3   8:3    0   598G  0 part
+</code></pre><p>La partición a modificar tiene el siguiente formato</p>
+<pre tabindex="0"><code># blkid /dev/sda3
+/dev/sda3: UUID=&#34;REDACTED_UUID&#34; BLOCK_SIZE=&#34;4096&#34; TYPE=&#34;ext4&#34; PARTUUID=&#34;REDACTED_UUID&#34;
+</code></pre><p>IMPORTANTE: Recuerde siempre hacer un respaldo de la información ya que factores
+como la fragmentación pueden llevar a la pérdida de la misma al realizar este
+proceso.</p>
+<h1 id="iniciar-con-disco-de-rescate-opcional">Iniciar con disco de rescate (opcional)</h1>
+<p>Si la partición de deseamos dividir contiene el sistema de archvos <em>ROOT</em> será
+necesario primero iniciar el servidor con un disco de rescate, para este ejemplo
+se usa <em>Debian 11</em> pero los comandos deberían funcionar para otras
+distribuciones.</p>
+<p>Si la partición no es <em>ROOT</em> se recomienda detener cualquier proceso que pueda
+estar usando el disco, para esto se puede apoyar del comando <em>lsof</em>, el cual
+lista todos los archivos que están en uso actualmente cuando se ejecuta sin
+parámetros.</p>
+<h1 id="desmontar-la-partición">Desmontar la partición</h1>
+<p>Asegúrese que el sistema de archivos a modificar no esté montado.</p>
+<pre tabindex="0"><code>umount /dev/sda3
+</code></pre><h1 id="redimensionar-el-sistema-de-archivos">Redimensionar el sistema de archivos</h1>
+<p>Antes de cambiar el tamaño de la partición es necesario redimensionar el sistema
+de archivos, las herramientas dependen del tipo de formato, en este caso es
+<em>ext4</em>.</p>
+<p>Note que no es lo mismo el tamaño de la partición que el del sistema de
+archivos. Este último debe ser de un tamaño menor o igual al tamaño de la
+partición.</p>
+<h2 id="verificar-la-partición-con-e2fsck">Verificar la partición con e2fsck</h2>
+<p>Con esto verificamos que el sistema de archivos esté en un estado consistente y
+cuan fragmentado se encuentra (última línea de la salida de ejemplo).</p>
+<pre tabindex="0"><code>e2fsck -f /dev/sda3
+</code></pre><h3 id="salida-de-ejemplo">Salida de ejemplo</h3>
+<pre tabindex="0"><code># e2fsck -f /dev/sda3
+e2fsck 1.46.2 (28-Feb-2021)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/sda3: 60040/39198720 files (0.1% non-contiguous), 3120026/156773632 blocks
+</code></pre><h2 id="redimensionar-el-sistema-de-archivos-1">Redimensionar el sistema de archivos</h2>
+<p>El siguiente comando redimesiona el sistema de ficheros <em>ext4</em>.</p>
+<pre tabindex="0"><code>resize2fs -p /dev/sda3 90G
+</code></pre><h3 id="salida-de-ejemplo-1">Salida de ejemplo</h3>
+<pre tabindex="0"><code>resize2fs -p /dev/sda3 90G
+resize2fs 1.46.2 (28-Feb-2021)
+Resizing the filesystem on /dev/sda3 to 23592960 (4k) blocks.
+Begin pass 2 (max = 585517)
+Relocating blocks             XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+Begin pass 3 (max = 4785)
+Scanning inode table          XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+Begin pass 4 (max = 8842)
+Updating inode references     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+The filesystem on /dev/sda3 is now 23592960 (4k) blocks long.
+</code></pre><p>Tomar nota de los valores mostrados en la última línea, ya que se usarán en los
+pasos posteriores.</p>
+<h2 id="probar-el-sistema-redimesionado">Probar el sistema redimesionado</h2>
+<p>Procedemos a montar el sistema de archivos, observe en los últimos dos ejemplos
+cómo el tamaño de la partición no ha tenido cambios, sin embargo el sistema de
+archivos motado sí se ha reducido.</p>
+<h3 id="montar-el-sistema-de-archivos">Montar el sistema de archivos</h3>
+<pre tabindex="0"><code>mount /dev/sda3 /mnt
+</code></pre><h3 id="verificar-el-tamaño-de-las-particiones">Verificar el tamaño de las particiones</h3>
+<pre tabindex="0"><code># lsblk /dev/sda
+NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda      8:0    0  600G  0 disk
+├─sda1   8:1    0    1M  0 part
+├─sda2   8:2    0    2G  0 part
+└─sda3   8:3    0  598G  0 part /mnt
+</code></pre><h3 id="verificar-el-montaje-del-sistema-de-archivos">Verificar el montaje del sistema de archivos</h3>
+<p>Se verifica el nuevo tamaño del sistema de archivos:</p>
+<pre tabindex="0"><code># df | grep -E &#39;Used|sda&#39;
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda3        88G  1.5G   82G   2% /mnt
+</code></pre><h1 id="redimensionar-la-partición">Redimensionar la partición</h1>
+<h2 id="verificar-el-tamaño-del-sistema-de-archivos-en-kb">Verificar el tamaño del sistema de archivos en KB</h2>
+<pre tabindex="0"><code># df | grep -E &#39;Used|sda&#39;
+Filesystem     1K-blocks    Used Available Use% Mounted on
+/dev/sda3       91784928 1260144  85789816   2% /mnt
+</code></pre><h2 id="desmontar-la-partición-1">Desmontar la partición</h2>
+<p>Asegúrese que el sistema de archivos a modificar no esté montado.</p>
+<pre tabindex="0"><code>umount /dev/sda3
+</code></pre><h2 id="calcular-el-tamaño-de-la-nueva-partición">Calcular el tamaño de la nueva partición</h2>
+<p>Se obtiene el nuevo tamaño del sistema de archivos (en KB), con base en el
+tamaño reportado por <em>resize2fs</em> cuando redujimos el sistema de ficheros.</p>
+<pre tabindex="0"><code>new_size=$((23592960*4))
+echo $new_size
+</code></pre><h2 id="obtener-el-número-de-partición">Obtener el número de partición</h2>
+<pre tabindex="0"><code>parted /dev/sda unit KiB p
+</code></pre><h3 id="salida-de-ejemplo-2">Salida de ejemplo</h3>
+<pre tabindex="0"><code>parted /dev/sda u KiB p
+Model: QEMU QEMU HARDDISK (scsi)
+Disk /dev/sda: 629145600kiB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags: pmbr_boot
+
+Number  Start        End           Size          File system  Name  Flags
+        17.0kiB      1024kiB       1007kiB       Free Space
+ 1      1024kiB      2048kiB       1024kiB                          bios_grub
+ 2      2048kiB      2050048kiB    2048000kiB    ext4
+ 3      2050048kiB   629145583kiB  627095536kiB  ext4
+</code></pre><p>En la Salida de ejemplo notamos, por su tamaño, que la partición que nos interesa
+es la número <em>3</em>.</p>
+<h2 id="obtener-la-posición-final-de-la-partición">Obtener la posición final de la partición</h2>
+<p>Obtener la posición final de la partición que redimensionaremos ya que el
+parámetro <em>resizepart</em> del comando <em>parted</em>, que usaremos para tal fin, recibe
+dicho argumento en lugar del nuevo tamaño.</p>
+<p>Para esto tomamos el valor de la columna <em>Start</em> (2099249) de la salida del comando anterior y lo sumamos con el tamaño calculado para la nueva partición (guardado en la variable $new_size)</p>
+<pre tabindex="0"><code>new_end=$((2050048+new_size))
+echo $new_end
+</code></pre><h3 id="salida-de-ejemplo-3">Salida de ejemplo</h3>
+<pre tabindex="0"><code># new_end=$((2050048+new_size))
+# echo $new_end
+96421888
+</code></pre><h2 id="redimensionar-la-partición-1">Redimensionar la partición</h2>
+<p>Usamos el tamaño obtenido en el paso anterior (<em>new_size</em>) para indicarle a
+<em>parted</em> en dónde terminará la nueva partición.</p>
+<pre tabindex="0"><code>parted /dev/sda resizepart 3 ${new_end}KiB
+</code></pre><h3 id="salida-de-ejemplo-4">Salida de ejemplo</h3>
+<pre tabindex="0"><code># parted /dev/sda resizepart 3 ${new_end}KiB
+Warning: Shrinking a partition can cause data loss, are you sure you want to continue?
+Yes/No? yes
+Information: You may need to update /etc/fstab.
+</code></pre><h2 id="verificar-el-nuevo-tamaño-de-la-partición">Verificar el nuevo tamaño de la partición</h2>
+<p>Con el parámetro <em>p</em> listamos el espacio libre en el disco, cómo se puede ver en
+el siguiente ejemplo, la partición <em>3</em> ahora tiene un tamaño de <em>96.6GB</em> y
+quedan <em>546GB</em> libres al final del disco.</p>
+<pre tabindex="0"><code># parted /dev/sda p free
+Model: QEMU QEMU HARDDISK (scsi)
+Disk /dev/sda: 644GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags: pmbr_boot
+
+Number  Start   End     Size    File system  Name  Flags
+        17.4kB  1049kB  1031kB  Free Space
+ 1      1049kB  2097kB  1049kB                     bios_grub
+ 2      2097kB  2099MB  2097MB  ext4
+ 3      2099MB  98.7GB  96.6GB  ext4
+        98.7GB  644GB   546GB   Free Space
+</code></pre><h3 id="verificar-la-partición-con-e2fsck-1">Verificar la partición con e2fsck</h3>
+<p>Verificamos que el sistema de archivos esté en un estado consistente.</p>
+<pre tabindex="0"><code># e2fsck -f /dev/sda3
+e2fsck 1.47.0 (5-Feb-2023)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/sda3: 55571/5898240 files (0.1% non-contiguous), 961764/23592960 blocks
+</code></pre><h4 id="ejemplo-de-un-redimensionado-fallido">Ejemplo de un redimensionado fallido</h4>
+<p>En el siguiente ejemplo la partición se redimensionó a un tamaño inferior al del
+sistema de archivos:</p>
+<pre tabindex="0"><code># e2fsck -f /dev/sda3
+e2fsck 1.47.0 (5-Feb-2023)
+The filesystem size (according to the superblock) is 23592960 blocks
+The physical size of the device is 23040000 blocks
+Either the superblock or the partition table is likely to be corrupt!
+Abort&lt;y&gt;? yes
+</code></pre><h2 id="redimensionar-el-sistema-de-archivos-2">Redimensionar el sistema de archivos</h2>
+<p>Redimesionamos nuevamente el sistema de ficheros <em>ext4</em> para que ocupe todo el
+espacio disponible en la nueva partición (si es que existe), ya que en ocaciones
+las conversiones entre unidades pueden fallar. Si el tamaño de la partición
+fuera menor que el del sistema de archivos, el comando <em>e2fsck</em> nos lo
+indicaría, en ese caso se deben verificar los tamaño y conversiones de unidades.</p>
+<pre tabindex="0"><code># resize2fs -p /dev/sda3
+resize2fs 1.47.0 (5-Feb-2023)
+The filesystem is already 23592960 (4k) blocks long.  Nothing to do!
+</code></pre><h3 id="ejemplo-de-un-redimensionado-en-el-que-la-partición-tenía-un-tamaño-mayor-al">Ejemplo de un redimensionado en el que la partición tenía un tamaño mayor al</h3>
+<p>del sistema de archivos:</p>
+<pre tabindex="0"><code>resize2fs -p /dev/sda3
+resize2fs 1.46.2 (28-Feb-2021)
+Resizing the filesystem on /dev/sda3 to 24391168 (4k) blocks.
+</code></pre><p>Note que en este caso no se indica el tamaño nuevo.</p>
+<h2 id="verificar-la-partición-con-e2fsck-2">Verificar la partición con e2fsck</h2>
+<p>Verificamos que el sistema de archivos esté en un estado consistente.</p>
+<pre tabindex="0"><code># e2fsck -f /dev/sda3
+e2fsck 1.47.0 (5-Feb-2023)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+/dev/sda3: 55571/5898240 files (0.1% non-contiguous), 961764/23592960 blocks
+</code></pre><h2 id="verificar-el-nuevo-tamaño-del-sistema-de-archivos">Verificar el nuevo tamaño del sistema de archivos</h2>
+<pre tabindex="0"><code># mount /dev/sda3 /mnt
+# df -h | grep sda
+/dev/sda3        88G  1.3G   82G   2% /mnt
+
+# df | grep sda
+/dev/sda3       91784928 1260144  85789816   2% /mnt
+</code></pre><p>Si se compara el tamaño de la partición del segundo comando <em>df</em> debería ser
+igual al que se sacó antes de iniciar el redimensionamiento.</p>
+<h1 id="crear-la-nueva-partición">Crear la nueva partición</h1>
+<h2 id="verificar-el-estado-actual-del-disco">Verificar el estado actual del disco</h2>
+<pre tabindex="0"><code># parted /dev/sda p free
+Model: QEMU QEMU HARDDISK (scsi)
+Disk /dev/sda: 644GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags: pmbr_boot
+
+Number  Start   End     Size    File system  Name  Flags
+        17.4kB  1049kB  1031kB  Free Space
+ 1      1049kB  2097kB  1049kB                     bios_grub
+ 2      2097kB  2099MB  2097MB  ext4
+ 3      2099MB  98.7GB  96.6GB  ext4
+        98.7GB  644GB   546GB   Free Space
+</code></pre><h2 id="crear-la-nueva-partición-1">Crear la nueva partición</h2>
+<p>Indicamos al comando <em>parted</em> el inicio de la nueva partición, que es el valor correspondiente a la columna <em>Start</em> del espacio libre en disco (<em>98.7GB</em>) y el final sería el <em>100%</em> del espacio contiguo posterior a este.</p>
+<pre tabindex="0"><code>parted /dev/sda mkpart zfspool ext2 98.7GB 100%
+</code></pre><h3 id="salida-de-ejemplo-5">Salida de ejemplo</h3>
+<pre tabindex="0"><code># parted /dev/sda mkpart zfspool ext2 98.7GB 100%
+Information: You may need to update /etc/fstab.
+</code></pre><p>El parámetro <em>zfspool</em> es opcional y solo funge como un tag en el caso de las tablas de particiones tipo <em>GPT</em>.</p>
+<h2 id="verificar-que-el-kernel-haya-tomado-la-nueva-partición">Verificar que el kernel haya tomado la nueva partición</h2>
+<pre tabindex="0"><code>cat /proc/partitions
+</code></pre><h3 id="salida-de-ejemplo-6">Salida de ejemplo</h3>
+<pre tabindex="0"><code># cat /proc/partitions
+major minor  #blocks  name
+
+   8        0  629145600 sda
+   8        1       1024 sda1
+   8        2    2048000 sda2
+   8        3   94371840 sda3
+   8        4  532721664 sda4
+   7        0    1237668 loop0
+</code></pre><p>En este punto se puede reiniciar el servidor para que arranque con sus sistema,
+en caso de que haya iniciado con un disco de rescate.</p>
+<h1 id="referencias">Referencias</h1>
+<p><a href="https://access.redhat.com/articles/1196333">https://access.redhat.com</a></p>
+<p><a href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/managing_storage_devices/getting-started-with-partitions_managing-storage-devices#proc_resizing-a-partition-with-parted_getting-started-with-partitions">https://docs.redhat.com</a></p>
+<p><a href="https://gnulinux.ro/blog-page-8441-install-zfs-in-rhel-centos-alma-linux-rocky-linux">https://gnulinux.ro</a></p>
+
+    </div>
+    <div class="post-footer">
+      
+    </div>
+  </article>
+
+    </main>
+  </body>
+</html>
