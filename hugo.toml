@@ -1,0 +1,17 @@
+baseURL = 'https://www.mnge.ch/'
+languageCode = 'es-mx'
+title = "mingetch's"
+theme = 'm10c'
+#theme = 'hugo-coder'
+
+[params]
+  author = 'mingetch'
+  description = 'mingetch is an IT professional in the private sector'
+
+[markup.goldmark.renderer]
+unsafe= true
+
+[[params.social]]
+  icon = "github"
+  name = "Github"
+  url = "https://github.com/mingetch"
