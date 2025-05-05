@@ -18,7 +18,7 @@ hugo
 
 # Test your site
 ```bash
-hugo
+hugo server
 ```
 
 So simple, isn't it?
